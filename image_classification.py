@@ -1,47 +1,78 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from skimage.feature import graycomatrix, graycoprops
+from skimage.measure import shannon_entropy  # Для расчета энтропии
 
 # Загрузка изображения
-image_path = 'image/I22.BMP'
-image = cv2.imread(image_path)
+image_path = 'image/I22.BMP'  # Укажите путь к вашему изображению
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Используем серый масштаб для текстурного анализа
 
 # Преобразование изображения в цветовое пространство HSV
-image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+image_hsv = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2HSV)
+v_channel = image_hsv[:, :, 2]  # Яркостная составляющая
 
-# Функция для отображения изображения
-def display_image(title, img, cmap=None):
-    plt.figure(figsize=(6, 6))
-    if cmap:
-        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), cmap=cmap)
-    else:
-        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    plt.title(title)
-    plt.axis('off')
-    plt.show()
+# Сегментация по яркости
+thresholds = np.linspace(v_channel.min(), v_channel.max(), 5)
+segmented_brightness = np.digitize(v_channel, thresholds)
 
-# Отображаем исходное изображение
-display_image('Original Image', image)
+# Функция для расчета текстурных характеристик (контраст, энергия, гомогенность и энтропия)
+def calculate_texture_features(image, distances=[5], angles=[0]):
+    glcm = graycomatrix(image, distances=distances, angles=angles, symmetric=True, normed=True)
+    contrast = graycoprops(glcm, 'contrast')[0, 0]
+    energy = graycoprops(glcm, 'energy')[0, 0]
+    homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
+    entropy = shannon_entropy(image)  # Расчет энтропии
+    return contrast, energy, homogeneity, entropy
 
-# Классификация по яркости в цветовой модели HSV (V-компонента)
-v_channel = image_hsv[:, :, 2]
+# Сегментация на основе реальных текстурных метрик
+image_contrast = np.zeros(image.shape)
+image_energy = np.zeros(image.shape)
+image_homogeneity = np.zeros(image.shape)
+image_entropy = np.zeros(image.shape)
 
-# Определение порогов для сегментации по яркости
-thresholds = np.linspace(v_channel.min(), v_channel.max(), 5)  # 4 порога, 5 сегментов
+# Скользящее окно для расчета текстурных метрик
+window_size = 25
+for i in range(0, image.shape[0] - window_size, window_size):
+    for j in range(0, image.shape[1] - window_size, window_size):
+        window = image[i:i + window_size, j:j + window_size]
+        contrast, energy, homogeneity, entropy = calculate_texture_features(window)
+        image_contrast[i:i + window_size, j:j + window_size] = contrast
+        image_energy[i:i + window_size, j:j + window_size] = energy
+        image_homogeneity[i:i + window_size, j:j + window_size] = homogeneity
+        image_entropy[i:i + window_size, j:j + window_size] = entropy
 
-# Функция для сегментации изображения по яркости
-def segment_image(v_channel, thresholds):
-    segments = np.digitize(v_channel, thresholds)
-    return segments
+# Визуализация нескольких графиков с легендами (colorbar)
+fig, axs = plt.subplots(2, 3, figsize=(15, 10))
 
-# Сегментация изображения
-segmented_image = segment_image(v_channel, thresholds)
+# Первая строка - структурные метрики
+im1 = axs[0, 0].imshow(segmented_brightness, cmap='jet')
+axs[0, 0].set_title('Segments classified by brightness')
+fig.colorbar(im1, ax=axs[0, 0])
 
-# Отображение сегментированного изображения
-plt.figure(figsize=(6, 6))
-plt.imshow(segmented_image, cmap='gray')
-plt.title('Segmented Image by Brightness (5 segments)')
-plt.axis('off')
+im2 = axs[0, 1].imshow(image_energy, cmap='jet')
+axs[0, 1].set_title('Segments classified by energy (real)')
+fig.colorbar(im2, ax=axs[0, 1])
+
+im3 = axs[0, 2].imshow(image_contrast, cmap='jet')
+axs[0, 2].set_title('Segments classified by contrast (real)')
+fig.colorbar(im3, ax=axs[0, 2])
+
+# Вторая строка - статистические метрики
+im4 = axs[1, 0].imshow(image_homogeneity, cmap='jet')
+axs[1, 0].set_title('Segments classified by homogeneity (real)')
+fig.colorbar(im4, ax=axs[1, 0])
+
+# Сегменты, классифицированные по энтропии
+im5 = axs[1, 1].imshow(image_entropy, cmap='jet')
+axs[1, 1].set_title('Segments classified by entropy (real)')
+fig.colorbar(im5, ax=axs[1, 1])
+
+# Отключение осей для всех графиков
+for ax in axs.flat:
+    ax.axis('off')
+
+plt.tight_layout()
 plt.show()
 
 # Описание сегментов на основе яркости
@@ -98,4 +129,4 @@ def calculate_and_visualize_errors(segmented_image):
     visualize_false_negatives(segmented_image, reference_mask)
 
 # Вызов функции для расчета и визуализации ошибок первого рода
-calculate_and_visualize_errors(segmented_image)
+calculate_and_visualize_errors(segmented_brightness)
