@@ -2,76 +2,100 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-def classify_image_segments(image_path, block_sizes=[(8, 8), (16, 16)], thresholds_dict=None):
-    # Load the image
-    image = cv2.imread(image_path)
-    if image is None:
-        print("Error: Image not found.")
-        return
+# Загрузка изображения
+image_path = 'image/I22.BMP'
+image = cv2.imread(image_path)
 
-    # Convert the image to HSV color space
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    
-    # Extract brightness (V) from the HSV channel
-    brightness = hsv_image[:, :, 2]
-    
-    # Set brightness thresholds for different block sizes
-    if thresholds_dict is None:
-        thresholds_dict = {
-            (8, 8): [80, 170, 255],  # Thresholds for block size 8x8
-            (16, 16): [60, 130, 200]  # Thresholds for block size 16x16
-        }
-    
-    # Step 1: Display the original image
-    plt.figure()
-    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    plt.title("Original Image")
+# Преобразование изображения в цветовое пространство HSV
+image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+# Функция для отображения изображения
+def display_image(title, img, cmap=None):
+    plt.figure(figsize=(6, 6))
+    if cmap:
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), cmap=cmap)
+    else:
+        plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    plt.title(title)
     plt.axis('off')
     plt.show()
 
-    # Step 2: Process and classify each block size
-    for block_size in block_sizes:
-        block_height, block_width = block_size
-        image_height, image_width = brightness.shape
-        segmented_image = np.zeros_like(image)
+# Отображаем исходное изображение
+display_image('Original Image', image)
 
-        # Get thresholds for the current block size
-        thresholds = thresholds_dict[block_size]
-        
-        # Loop through the image in blocks
-        for y in range(0, image_height, block_height):
-            for x in range(0, image_width, block_width):
-                # Extract block
-                block = brightness[y:y + block_height, x:x + block_width]
-                
-                # Calculate average brightness of the block
-                avg_brightness = np.mean(block)
-                
-                # Classify block by average brightness
-                if avg_brightness <= thresholds[0]:
-                    color = [255, 0, 0]  # Dark segment - red
-                elif avg_brightness <= thresholds[1]:
-                    color = [0, 255, 0]  # Medium segment - green
-                else:
-                    color = [0, 0, 255]  # Bright segment - blue
+# Классификация по яркости в цветовой модели HSV (V-компонента)
+v_channel = image_hsv[:, :, 2]
 
-                # Color the segmented block
-                segmented_image[y:y + block_height, x:x + block_width] = color
+# Определение порогов для сегментации по яркости
+thresholds = np.linspace(v_channel.min(), v_channel.max(), 5)  # 4 порога, 5 сегментов
 
-        # Step 3: Display segmented image with legend
-        plt.figure()
-        plt.imshow(cv2.cvtColor(segmented_image, cv2.COLOR_BGR2RGB))
-        plt.title(f"Segmented Image (Block Size: {block_size[0]}x{block_size[1]})")
-        plt.axis('off')
+# Функция для сегментации изображения по яркости
+def segment_image(v_channel, thresholds):
+    segments = np.digitize(v_channel, thresholds)
+    return segments
 
-        # Add legend
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
-        labels = ["Low Brightness", "Medium Brightness", "High Brightness"]
-        for i, color in enumerate(colors):
-            plt.scatter([], [], color=np.array(color) / 255.0, label=labels[i])
-        plt.legend(title="Brightness Classification", loc='upper right')
-        plt.show()
+# Сегментация изображения
+segmented_image = segment_image(v_channel, thresholds)
 
-# Call the function with the path to the image and block sizes
-image_path = r'image\I22.BMP'
-classify_image_segments(image_path, block_sizes=[(8, 8), (16, 16)])
+# Отображение сегментированного изображения
+plt.figure(figsize=(6, 6))
+plt.imshow(segmented_image, cmap='gray')
+plt.title('Segmented Image by Brightness (5 segments)')
+plt.axis('off')
+plt.show()
+
+# Описание сегментов на основе яркости
+def describe_segments(v_channel, thresholds):
+    descriptions = []
+    for i in range(1, len(thresholds)):
+        mask = (v_channel >= thresholds[i-1]) & (v_channel < thresholds[i])
+        segment_mean = np.mean(v_channel[mask]) if mask.any() else 0
+        descriptions.append(f'Segment {i}: Brightness between {thresholds[i-1]:.2f} and {thresholds[i]:.2f}, mean: {segment_mean:.2f}')
+    return descriptions
+
+# Описание сегментов
+segment_descriptions = describe_segments(v_channel, thresholds)
+
+# Функция для визуализации текстовых выводов
+def visualize_text_output(text_list, title):
+    plt.figure(figsize=(8, 4))
+    plt.text(0.5, 0.5, "\n".join(text_list), horizontalalignment='center', verticalalignment='center', 
+             wrap=True, fontsize=12)
+    plt.title(title)
+    plt.axis('off')
+    plt.show()
+
+# Визуализируем текстовые выводы описания сегментов
+visualize_text_output(segment_descriptions, 'Segment Descriptions')
+
+# Функция для визуализации ошибок первого рода (false negatives)
+def visualize_false_negatives(segmented_image, reference_mask):
+    false_negatives_mask = (segmented_image != reference_mask) & (reference_mask != 0)
+    
+    # Создаем изображение, где отображаются только false negatives
+    false_negatives_image = np.zeros_like(segmented_image, dtype=np.uint8)
+    false_negatives_image[false_negatives_mask] = 255  # Выделяем ошибки белым цветом
+    
+    plt.figure(figsize=(6, 6))
+    plt.imshow(false_negatives_image, cmap='gray')
+    plt.title('False Negatives Visualization')
+    plt.axis('off')
+    plt.show()
+
+# Модифицированная функция для расчета и визуализации ошибок первого рода
+def calculate_and_visualize_errors(segmented_image):
+    # Предположим, что у нас есть некоторая эталонная маска для проверки ошибок
+    reference_mask = np.random.randint(1, 6, size=segmented_image.shape)
+
+    # Ошибки первого рода - когда объект отнесен к другому классу (ложноотрицательные)
+    false_negatives = np.sum((segmented_image != reference_mask) & (reference_mask != 0))
+    
+    # Визуализируем количество ошибок первого рода
+    error_info = [f'False Negatives (Error Type I): {false_negatives}']
+    visualize_text_output(error_info, 'Error Type I: False Negatives')
+    
+    # Визуализация false negatives
+    visualize_false_negatives(segmented_image, reference_mask)
+
+# Вызов функции для расчета и визуализации ошибок первого рода
+calculate_and_visualize_errors(segmented_image)
